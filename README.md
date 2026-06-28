@@ -33,7 +33,10 @@ O notebook é dividido em seções, na ordem do pipeline:
 
 ## Estado atual
 
-- **Dia 1 (Sáb 27/06):** seção **1. Lexer** implementada — números, strings,
-  identificadores, palavras reservadas e remoção de comentários (`//` e `/* */`).
-- **Próximos:** indentação `INDENT`/`DEDENT` (Dia 2), parser (B) e
+- **Dia 1 (Sáb 27/06):** seção **1. Lexer** — números, strings, identificadores,
+  palavras reservadas e remoção de comentários (`//` e `/* */`).
+- **Dia 2 (Dom 28/06):** **indentação** no lexer — `NEWLINE` no fim de cada
+  linha e `INDENT`/`DEDENT` por nível de recuo (pilha). Teste com o **Omelete
+  completo** (seção 15) na seção *4. Exemplos*.
+- **Próximos:** mensagens de erro com número da linha (Dia 3, A), parser (B) e
   pretty-print/validação (C).
