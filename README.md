@@ -1,42 +1,383 @@
-# RECIP-E — Restaurante do Chefe Remy
+# DSL RECIP-E — Restaurante do Chefe Remy
 
-Front-end (lexer → parser → impressão/validação) da DSL **RECIP-E** para receitas
-de cozinha, implementado em **Scheme**. Projeto da disciplina **MC346 —
-Paradigmas de Programação** (UNICAMP).
+## Descrição Resumida da DSL
 
-Todo o código vive em um único notebook: **`RECIP-E.ipynb`**.
+**RECIP-E** é uma Linguagem de Domínio Específico (DSL) imperativa, em
+português, para descrever receitas culinárias como programas estruturados,
+legíveis e validáveis. Ingredientes e utensílios são tratados como **recursos
+declarados** e os passos do preparo são **instruções sequenciais** que operam
+sobre esses recursos.
 
-## Como rodar
+A motivação é eliminar a ambiguidade do texto livre (*"uma pitada"*, *"asse
+até dourar"*) sem sacrificar legibilidade. Ao formalizar a estrutura de uma
+receita, abre-se espaço para:
 
-1. Instale o kernel **Calysto Scheme**:
-   ```
-   pip install calysto-scheme
-   python -m calysto_scheme install --sys-prefix
-   ```
-2. Abra o notebook:
-   ```
-   jupyter notebook RECIP-E.ipynb
-   ```
-3. No menu: **Kernel → Restart & Run All**.
+- **validação estática** (todos os ingredientes usados foram declarados?
+  a soma das medidas excede o estoque?),
+- **integração com sistemas externos** (apps de cardápio, geração automática
+  de listas de compras, cozinhas robóticas),
+- **reuso por composição** (sub-receitas — um molho bechamel pode ser
+  componente de várias receitas).
 
-## Organização do notebook
+A relevância está em ser um caso de DSL com público duplo: o cozinheiro, que
+lê e escreve, e o sistema, que processa.
 
-O notebook é dividido em seções, na ordem do pipeline:
+Este projeto implementa o **front-end** da linguagem (lexer → parser →
+pretty-print → validação estática) em **Scheme**, executado em Jupyter via
+kernel **Calysto Scheme**. Disciplina **MC346 — Paradigmas de Programação**,
+UNICAMP.
 
-| Seção | Conteúdo | Responsável |
-|-------|----------|-------------|
-| 0. Setup / Contrato | formato do token + tabelas de palavras reservadas | A |
-| 1. Lexer | `tokeniza`: texto → lista de tokens | A |
-| 2. Parser | tokens → AST | B |
-| 3. Pretty-print + Validação | impressão da AST + checagens estáticas | C |
-| 4. Exemplos | receitas de teste | todos |
+## Slides
 
-## Estado atual
+Apresentação final: `<link para slides.pdf>` _(adicionar)_
 
-- **Dia 1 (Sáb 27/06):** seção **1. Lexer** — números, strings, identificadores,
-  palavras reservadas e remoção de comentários (`//` e `/* */`).
-- **Dia 2 (Dom 28/06):** **indentação** no lexer — `NEWLINE` no fim de cada
-  linha e `INDENT`/`DEDENT` por nível de recuo (pilha). Teste com o **Omelete
-  completo** (seção 15) na seção *4. Exemplos*.
-- **Próximos:** mensagens de erro com número da linha (Dia 3, A), parser (B) e
-  pretty-print/validação (C).
+## Sintaxe da Linguagem
+
+### Estrutura geral
+
+Um programa RECIP-E é composto por até 4 blocos, nesta ordem (todos
+opcionais — embora INGREDIENTES e METODOS sejam recomendados):
+
+```
+RECEITA
+    NOME: "..."
+    PORCOES: <n>
+    NIVEL: <FACIL|MEDIO|AVANCADO>
+    TEMPO_PREPARO: <n> MINUTOS
+
+INGREDIENTES
+    <qty> <unidade> <nome>
+    ...
+
+UTENSILIOS
+    <qty> <nome>
+    ...
+
+METODOS
+    <instrucao>
+    ...
+```
+
+Os blocos são abertos pela palavra-chave e seu conteúdo é **delimitado por
+indentação** (4 espaços ou 1 tab). Não há `{}` nem `;`.
+
+### Comentários
+
+```
+// comentário de linha
+/* comentário
+   de bloco */
+```
+
+### Bloco RECEITA — metadados
+
+Campos: `NOME` (string), `PORCOES` (número), `NIVEL` (`FACIL|MEDIO|AVANCADO`),
+`TEMPO_PREPARO` (número + unidade de tempo).
+
+### Bloco INGREDIENTES — declaração de insumos
+
+```
+INGREDIENTES
+    2 unidade ovo
+    200 ml leite
+    10 g sal
+    1 unidade "RecheioDeQueijo"   // sub-receita
+```
+
+Unidades aceitas: `g kg ml l unidade colher colher_cha xcara pitada a_gosto faca`.
+
+Quando o nome do ingrediente vem entre aspas, ele é tratado como
+**sub-receita** — outra receita RECIP-E referenciada pelo nome.
+
+### Bloco UTENSILIOS — ambiente
+
+```
+UTENSILIOS
+    1 frigideira
+    1 garfo
+    1 tigela
+```
+
+### Bloco METODOS — fluxo de execução
+
+Instruções por linha. Os principais comandos:
+
+#### Comando-verbo
+
+```
+ADICIONAR ovo, sal USANDO 5 g EM tigela
+MISTURAR ovo, pimenta_do_reino USANDO 2 g EM tigela COM garfo
+ASSAR massa EM forno A 180 GRAUS POR 40 MINUTOS
+CORTAR cebola EM tabua NO_ESTILO BRUNOISE
+FRITAR ovo EM frigideira A FOGO_MEDIO
+```
+
+Parâmetros (todos opcionais, podem combinar):
+
+| Parâmetro | Significado |
+|---|---|
+| `USANDO <qty> <unidade>` | Medida específica neste passo (por argumento) |
+| `EM <utensílio>` | Onde a operação acontece |
+| `COM <utensílio>` | Ferramenta auxiliar |
+| `A <n> GRAUS` ou `A FOGO_*` | Temperatura / nível de chama |
+| `POR <n> MINUTOS\|HORAS\|SEGUNDOS` | Duração |
+| `ATE <condição>` | Loop até condição (`FIRMAR`, `DOURAR`, etc.) |
+| `NO_ESTILO <tipo>` | Técnica de corte (`CUBOS`, `FATIAS`, `BRUNOISE`...) |
+
+#### Atribuição — `ESTE é`
+
+```
+MISTURAR ovo, sal EM tigela
+ESTE é MISTURA01
+```
+
+`ESTE é` nomeia o resultado da **linha imediatamente anterior**. O nome
+criado pode ser usado nas instruções seguintes como se fosse um ingrediente.
+
+#### Espera — `AGUARDAR`
+
+```
+AGUARDAR 30 MINUTOS
+```
+
+#### Condicional — `VERIFICAR SE / SENAO`
+
+```
+VERIFICAR SE MISTURA01 ESTA FIRME
+    CONTINUAR
+SENAO
+    ASSAR MISTURA01 EM frigideira POR 2 MINUTOS
+```
+
+#### Paralelismo — `AO_MESMO_TEMPO`
+
+```
+AO_MESMO_TEMPO
+    ADICIONAR oleo EM frigideira
+    AGUARDAR 1 MINUTOS
+```
+
+Cada linha do bloco indentado é um ramo independente. A validação estática
+**alerta** se dois ramos paralelos disputam o mesmo utensílio.
+
+### Verbos nativos
+
+`ADICIONAR`, `MISTURAR`, `BATER`, `TEMPERAR`, `ASSAR`, `FRITAR`, `COZINHAR`,
+`REFOGAR`, `GRELHAR`, `CORTAR`, `RALAR`, `ESCORRER`, `COLOCAR`, `DECORAR`.
+
+## Gramática da Linguagem
+
+EBNF estendida. `INDENT` e `DEDENT` são tokens sintéticos emitidos pelo lexer
+ao crescer e diminuir o nível de indentação.
+
+```
+programa         ::= bloco_receita? bloco_ingredientes? bloco_utensilios? bloco_metodos?
+
+bloco_receita    ::= 'RECEITA' NEWLINE INDENT campo_meta+ DEDENT
+campo_meta       ::= IDENT ':' (STRING | NUMBER | IDENT) NEWLINE
+
+bloco_ingredientes ::= 'INGREDIENTES' NEWLINE INDENT decl_ingrediente+ DEDENT
+decl_ingrediente   ::= NUMBER unidade (IDENT | STRING) NEWLINE
+unidade            ::= 'g' | 'kg' | 'ml' | 'l' | 'unidade'
+                     | 'colher' | 'colher_cha' | 'xcara'
+                     | 'pitada' | 'a_gosto' | 'faca'
+
+bloco_utensilios ::= 'UTENSILIOS' NEWLINE INDENT decl_utensilio+ DEDENT
+decl_utensilio   ::= NUMBER IDENT NEWLINE
+
+bloco_metodos    ::= 'METODOS' NEWLINE INDENT instrucao+ DEDENT
+instrucao        ::= cmd_verbo | atribuicao | aguardar
+                   | verificar | ao_mesmo_tempo | 'CONTINUAR'
+
+cmd_verbo        ::= VERBO lista_arg ('EM' IDENT)? ('COM' IDENT)?
+                            ('A' (NUMBER 'GRAUS' | nivel_fogo))?
+                            ('POR' NUMBER unidade_tempo)?
+                            ('ATE' IDENT)?
+                            ('NO_ESTILO' IDENT)?
+                            NEWLINE
+lista_arg        ::= arg (',' arg)*
+arg              ::= IDENT ('USANDO' NUMBER unidade)?
+
+atribuicao       ::= 'ESTE' 'é' IDENT NEWLINE
+aguardar         ::= 'AGUARDAR' NUMBER unidade_tempo NEWLINE
+
+verificar        ::= 'VERIFICAR' 'SE' IDENT 'ESTA' IDENT NEWLINE
+                       INDENT instrucao+ DEDENT
+                     ('SENAO' NEWLINE INDENT instrucao+ DEDENT)?
+
+ao_mesmo_tempo   ::= 'AO_MESMO_TEMPO' NEWLINE
+                       INDENT instrucao+ DEDENT
+
+VERBO            ::= 'ADICIONAR' | 'MISTURAR' | 'BATER' | 'TEMPERAR'
+                   | 'ASSAR' | 'FRITAR' | 'COZINHAR' | 'REFOGAR'
+                   | 'GRELHAR' | 'CORTAR' | 'RALAR' | 'ESCORRER'
+                   | 'COLOCAR' | 'DECORAR'
+
+unidade_tempo    ::= 'MINUTOS' | 'HORAS' | 'SEGUNDOS'
+nivel_fogo       ::= 'FOGO_ALTO' | 'FOGO_MEDIO' | 'FOGO_BAIXO'
+
+STRING           ::= '"' <qualquer caractere exceto '"'>* '"'
+NUMBER           ::= [0-9]+ ('.' [0-9]+)?
+IDENT            ::= [a-zA-Z_] [a-zA-Z0-9_]*
+```
+
+> **Diferenças vs. especificação original (v1.0):** o grupo optou por
+> delimitação por **indentação** em vez de `{ } ;`, e por construções
+> `ESTE é`, `USANDO`, `AO_MESMO_TEMPO`, `VERIFICAR SE/SENAO`. Discussão
+> completa na seção *Discussão*.
+
+## Notebook
+
+Todo o código (lexer, parser, pretty-printer, validação, driver e exemplos)
+está em **[`RECIP-E.ipynb`](./RECIP-E.ipynb)**.
+
+### Como executar
+
+```
+pip install calysto-scheme
+python -m calysto_scheme install --sys-prefix
+jupyter notebook RECIP-E.ipynb
+```
+
+No menu: **Kernel → Restart & Run All**.
+
+### Estrutura do notebook
+
+| Seção | Conteúdo |
+|---|---|
+| 0 | Contrato do token + tabelas léxicas |
+| 1 | **Lexer** — `tokeniza` (texto → tokens com INDENT/DEDENT) |
+| 2 | **Parser** — `parse-programa` (tokens → AST) + testes P1–P11 |
+| 3 | **Pretty-printer + Validação** — `imprime-programa`, `valida` + testes V1–V5 |
+| 4 | **Driver `run`** — pipeline ponta-a-ponta |
+| 5 | **Exemplos selecionados** (Omelete + variações) |
+
+## Exemplos Selecionados
+
+### Exemplo 1 — Omelete com Queijo (5.1)
+
+Receita canônica que exercita: metadados, ingredientes com sub-receita,
+`USANDO` por argumento, `ESTE é`, `AO_MESMO_TEMPO`, `VERIFICAR SE/SENAO` e
+parâmetros de controle.
+
+Esperado: AST completa, relatório **`OK — Nenhum aviso`**.
+
+### Exemplo 2 — Receita com erro de estoque (5.2)
+
+Mesma omelete, mas com `USANDO 50 g` de sal num estoque de `20 g`.
+
+Esperado: AST igual; relatório com **1 aviso `OVERUSE`** apontando que o uso
+total (50 g) excede o estoque (20 g).
+
+### Exemplo 3 — Receita com conflito de utensílio (5.3)
+
+Bloco `AO_MESMO_TEMPO` em que dois ramos usam `EM frigideira`.
+
+Esperado: AST igual; **1 aviso `UTENSIL_CONFLICT`**.
+
+Os três exemplos rodam na seção 5 do notebook chamando `(run exemplo-N)`.
+
+## Discussão
+
+A proposta inicial era implementar fielmente a EBNF da especificação v1.0 do
+RECIP-E. Ao longo do desenvolvimento, três decisões nos afastaram dela:
+
+1. **Indentação no lugar de `{}` e `;`**. A spec original adota a sintaxe
+   de C/Java. Avaliamos que o domínio (receita culinária) tem caráter
+   narrativo e que receitas escritas com chaves carregam ruído visual
+   incompatível com leitura por não-programadores. Adotamos indentação
+   estilo Python, que torna o programa visualmente mais próximo de uma
+   receita real impressa.
+
+2. **`ESTE é` no lugar de `=`**. O sinal de igual carrega forte associação
+   com matemática. `ESTE é <nome>` em uma linha separada lê como a forma
+   natural de nomear o que se acabou de fazer ("isto é a base"), reforçando
+   a leitura como prosa estruturada.
+
+3. **`AO_MESMO_TEMPO` como construção de primeira classe**. A spec original
+   não previa paralelismo, mas receitas reais são repletas de ações
+   simultâneas ("enquanto o forno aquece, prepare o recheio"). Adicionar
+   essa construção criou a oportunidade mais interessante de validação
+   estática do projeto: **detecção de conflito de utensílio** entre ramos
+   paralelos.
+
+O **resultado alcançado** cumpre o escopo de *parse + AST + pretty-print +
+validação estática* sobre os exemplos da seção 5. A validação dispara
+corretamente nos cinco códigos esperados (`UNDECLARED_INGREDIENT`,
+`UNDECLARED_UTENSIL`, `OVERUSE`, `UTENSIL_CONFLICT`, `UNRESOLVED_SUBRECIPE`).
+O pipeline `run` roda fim-a-fim em ≤ 1 s para receitas do tamanho do Omelete.
+
+A indentação, planejada como o ponto mais arriscado do projeto, mostrou-se
+tratável com uma pilha de níveis simples. Dois pontos consumiram tempo extra:
+
+- O **dispatcher de `instrucao`** depende de espiar o próximo token; foi
+  necessário estabilizar cedo a interface `peek/advance` antes de qualquer
+  regra. Resolvemos com um cursor implementado como closure mutável (sem
+  depender de `set-car!`, que tem suporte irregular no Calysto Scheme).
+- O **`filter` do Calysto** retorna um objeto Python e não uma lista Scheme.
+  Substituímos por uma `my-filter` recursiva escrita em Scheme puro.
+
+A validação estática deliberadamente **não simula execução** — não há
+"runtime de cozinha". Toda checagem é feita sobre a AST.
+
+## Conclusão
+
+**Principais conclusões.** É possível levantar um front-end completo
+(lexer + parser + printer + validações estáticas) de uma DSL não-trivial em
+poucos dias, *desde que* o esquema da AST e o contrato de token estejam
+fechados muito cedo. Os pontos que travaram o cronograma foram justamente os
+que não foram contratualizados a tempo: a forma exata do nó `verb-cmd` com
+muitos campos opcionais foi refinada algumas vezes até estabilizar.
+
+**Desafios enfrentados.**
+
+- **Indentação no lexer** — exigiu um modelo de pilha com `INDENT`/`DEDENT`
+  e atenção a linhas em branco / só com comentário, que não devem alterar o
+  nível.
+- **Multi-palavra `ESTE é`** — palavra com acento e espaço; resolvido
+  classificando ambos como `KEYWORD` e tratando como duas keywords
+  contíguas no parser.
+- **`AO_MESMO_TEMPO` com múltiplas instruções por ramo** — escolhemos
+  manter um ramo = uma linha para simplificar; encadeamento de múltiplos
+  passos em um ramo é feito via `ESTE é`.
+- **Diferenças entre Calysto Scheme e Scheme padrão** — `char>=?`/`char<=?`
+  ausentes e `filter` com semântica Python obrigaram a reescrever
+  primitivas em código próprio.
+
+**Lições aprendidas.**
+
+- Contratos antes de código. O esforço de uma manhã definindo `token` e
+  schema de AST poupou dias de retrabalho.
+- Trabalhar contra **fixtures** (tokens e ASTs escritos à mão) permite que
+  parser e printer evoluam em paralelo ao lexer.
+- Validação estática traz mais valor percebido por linha de código que
+  qualquer outra parte do front-end: é o que diferencia "ler um arquivo"
+  de "checar uma receita".
+
+# Trabalhos Futuros
+
+- **Construções da spec não cobertas**: `REPETIR N VEZES`, loops `ATE`
+  completos, anotações `@CRITICO` / `@OPCIONAL`, e `EM_PONTO_DE <estado>`.
+- **Suporte alternativo à sintaxe `{}` / `;`** — relaxar o lexer para
+  aceitar a spec original como entrada compatível.
+- **Avaliador / runtime** que simule o passo a passo da receita, incluindo
+  consumo real de estoque ao longo da execução (hoje só estática).
+- **Geração automática** a partir da AST: lista de compras, checklist de
+  preparo, sumário de tempos, *grafo* de dependências de etapas.
+- **Plugin de editor** (VSCode) com destaque de sintaxe e os warnings
+  inline da validação estática.
+- **Mensagens de erro com sugestão** — não só apontar o problema, mas
+  sugerir a correção mais próxima (similar a clang).
+
+# Referências Bibliográficas
+
+1. RECIP-E — Especificação de Sintaxe e Gramática, v1.0. MC346, UNICAMP, 2026.
+2. *Calysto Scheme* — kernel Jupyter para Scheme.
+   https://github.com/Calysto/calysto_scheme
+3. Aho, A. V.; Lam, M. S.; Sethi, R.; Ullman, J. D. *Compilers: Principles,
+   Techniques, and Tools*. 2ª ed. Pearson, 2006. (Cap. 3 e 4 — análise
+   léxica e sintática descendente).
+4. *The Python Language Reference* — seção *Lexical Analysis: Indentation*.
+   https://docs.python.org/3/reference/lexical_analysis.html (modelo de
+   `INDENT`/`DEDENT` que inspirou o lexer).
+5. Wirth, N. *Extended Backus-Naur Form (EBNF)*. ISO/IEC 14977, 1996.
