@@ -320,6 +320,44 @@ tratável com uma pilha de níveis simples. Dois pontos consumiram tempo extra:
 A validação estática deliberadamente **não simula execução** — não há
 "runtime de cozinha". Toda checagem é feita sobre a AST.
 
+### Por que parser explícito em vez de macros Scheme?
+
+O material da disciplina destacou macros higiênicas (`define-syntax`,
+`syntax-rules`) como o mecanismo canônico de DSL em Scheme — a construção que
+permite estender a própria linguagem hospedeira e ganhar leitura em domínio
+específico "de graça". Ainda assim, decidimos implementar RECIP-E como uma
+**linguagem externa** processada por um parser recursivo-descendente próprio.
+A justificativa tem três partes:
+
+1. **A DSL é textual, não embebida.** Um programa RECIP-E é um arquivo
+   `.recipe` autônomo, escrito por um cozinheiro que não conhece Scheme.
+   Macros são uma boa saída quando a DSL é uma sintaxe interna dentro de um
+   programa Scheme (como o `(select ... from ... where ...)` do notebook de
+   aula), porque a expansão acontece durante a compilação do próprio Scheme.
+   RECIP-E precisa lidar com a fonte antes de qualquer coisa Scheme
+   acontecer — inclusive tokenizar `//`, `"..."`, indentação — o que macros
+   sozinhas não resolvem.
+
+2. **Palavras-chave em português quebram a leitura homográfica de macros.**
+   Uma macro higiênica assume que os tokens que ela recebe já são símbolos
+   Scheme válidos. Palavras como `ESTE é` (com espaço e acento),
+   `AO_MESMO_TEMPO`, `VERIFICAR SE` e sobretudo o operador multi-palavra
+   `A 180 GRAUS` não sobrevivem ao leitor padrão de S-expressions. Precisaríamos
+   de um pré-lexer *antes* da macro — que é justamente o pipeline que fizemos.
+
+3. **Precisamos de posição (linha/coluna) para os avisos.** A validação
+   estática relata `UNDECLARED_INGREDIENT: ovo não declarado (linha 12)`.
+   Macros descartam informação de posição na expansão; um parser explícito
+   preserva o número de linha em cada token e cada nó da AST.
+
+Usamos, porém, o restante do arsenal funcional: **closures** (cursor de
+tokens com `set!` interno, dispatch da tabela via função retornada por
+`create-table`-like), **funções de ordem superior** (`map`, `for-each`,
+`my-filter`, e visitors recursivos sobre a AST) e **estruturas imutáveis
+tageadas** para toda a AST. O código não é 100% puro (usamos `set!` no cursor
+e `set!` para acumular issues), mas evita mutação de listas (`set-car!`) por
+questões de portabilidade no Calysto.
+
 ## Conclusão
 
 **Principais conclusões.** É possível levantar um front-end completo
