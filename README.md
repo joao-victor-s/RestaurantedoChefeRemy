@@ -279,118 +279,45 @@ Os três exemplos rodam na seção 5 do notebook chamando `(run exemplo-N)`.
 
 ## Discussão
 
-A proposta inicial era implementar fielmente a EBNF da especificação v1.0 do
-RECIP-E. Ao longo do desenvolvimento, três decisões nos afastaram dela:
+Três decisões afastaram a implementação da EBNF original:
 
-1. **Indentação no lugar de `{}` e `;`**. A spec original adota a sintaxe
-   de C/Java. Avaliamos que o domínio (receita culinária) tem caráter
-   narrativo e que receitas escritas com chaves carregam ruído visual
-   incompatível com leitura por não-programadores. Adotamos indentação
-   estilo Python, que torna o programa visualmente mais próximo de uma
-   receita real impressa.
+1. **Indentação no lugar de `{}` e `;`** — reduz ruído visual, aproxima a
+   receita da leitura em prosa.
+2. **`ESTE é` no lugar de `=`** — evita a leitura matemática; fica próximo
+   da forma natural de nomear um preparo.
+3. **`AO_MESMO_TEMPO`** — construção nova (não existia na spec) que reflete
+   passos simultâneos reais de cozinha e permite a validação de conflito
+   de utensílio entre ramos paralelos.
 
-2. **`ESTE é` no lugar de `=`**. O sinal de igual carrega forte associação
-   com matemática. `ESTE é <nome>` em uma linha separada lê como a forma
-   natural de nomear o que se acabou de fazer ("isto é a base"), reforçando
-   a leitura como prosa estruturada.
+O front-end cobre todos os cinco códigos de validação
+(`UNDECLARED_INGREDIENT`, `UNDECLARED_UTENSIL`, `OVERUSE`,
+`UTENSIL_CONFLICT`, `UNRESOLVED_SUBRECIPE`). A validação é **estática**:
+opera sobre a AST, não simula execução culinária.
 
-3. **`AO_MESMO_TEMPO` como construção de primeira classe**. A spec original
-   não previa paralelismo, mas receitas reais são repletas de ações
-   simultâneas ("enquanto o forno aquece, prepare o recheio"). Adicionar
-   essa construção criou a oportunidade mais interessante de validação
-   estática do projeto: **detecção de conflito de utensílio** entre ramos
-   paralelos.
+### Por que parser próprio em vez de macros Scheme?
 
-O **resultado alcançado** cumpre o escopo de *parse + AST + pretty-print +
-validação estática* sobre os exemplos da seção 5. A validação dispara
-corretamente nos cinco códigos esperados (`UNDECLARED_INGREDIENT`,
-`UNDECLARED_UTENSIL`, `OVERUSE`, `UTENSIL_CONFLICT`, `UNRESOLVED_SUBRECIPE`).
-O pipeline `run` roda fim-a-fim em ≤ 1 s para receitas do tamanho do Omelete.
-
-A indentação, planejada como o ponto mais arriscado do projeto, mostrou-se
-tratável com uma pilha de níveis simples. Dois pontos consumiram tempo extra:
-
-- O **dispatcher de `instrucao`** depende de espiar o próximo token; foi
-  necessário estabilizar cedo a interface `peek/advance` antes de qualquer
-  regra. Resolvemos com um cursor implementado como closure mutável (sem
-  depender de `set-car!`, que tem suporte irregular no Calysto Scheme).
-- O **`filter` do Calysto** retorna um objeto Python e não uma lista Scheme.
-  Substituímos por uma `my-filter` recursiva escrita em Scheme puro.
-
-A validação estática deliberadamente **não simula execução** — não há
-"runtime de cozinha". Toda checagem é feita sobre a AST.
-
-### Por que parser explícito em vez de macros Scheme?
-
-O material da disciplina destacou macros higiênicas (`define-syntax`,
-`syntax-rules`) como o mecanismo canônico de DSL em Scheme — a construção que
-permite estender a própria linguagem hospedeira e ganhar leitura em domínio
-específico "de graça". Ainda assim, decidimos implementar RECIP-E como uma
-**linguagem externa** processada por um parser recursivo-descendente próprio.
-A justificativa tem três partes:
-
-1. **A DSL é textual, não embebida.** Um programa RECIP-E é um arquivo
-   `.recipe` autônomo, escrito por um cozinheiro que não conhece Scheme.
-   Macros são uma boa saída quando a DSL é uma sintaxe interna dentro de um
-   programa Scheme (como o `(select ... from ... where ...)` do notebook de
-   aula), porque a expansão acontece durante a compilação do próprio Scheme.
-   RECIP-E precisa lidar com a fonte antes de qualquer coisa Scheme
-   acontecer — inclusive tokenizar `//`, `"..."`, indentação — o que macros
-   sozinhas não resolvem.
-
-2. **Palavras-chave em português quebram a leitura homográfica de macros.**
-   Uma macro higiênica assume que os tokens que ela recebe já são símbolos
-   Scheme válidos. Palavras como `ESTE é` (com espaço e acento),
-   `AO_MESMO_TEMPO`, `VERIFICAR SE` e sobretudo o operador multi-palavra
-   `A 180 GRAUS` não sobrevivem ao leitor padrão de S-expressions. Precisaríamos
-   de um pré-lexer *antes* da macro — que é justamente o pipeline que fizemos.
-
-3. **Precisamos de posição (linha/coluna) para os avisos.** A validação
-   estática relata `UNDECLARED_INGREDIENT: ovo não declarado (linha 12)`.
-   Macros descartam informação de posição na expansão; um parser explícito
-   preserva o número de linha em cada token e cada nó da AST.
-
-Usamos, porém, o restante do arsenal funcional: **closures** (cursor de
-tokens com `set!` interno, dispatch da tabela via função retornada por
-`create-table`-like), **funções de ordem superior** (`map`, `for-each`,
-`my-filter`, e visitors recursivos sobre a AST) e **estruturas imutáveis
-tageadas** para toda a AST. O código não é 100% puro (usamos `set!` no cursor
-e `set!` para acumular issues), mas evita mutação de listas (`set-car!`) por
-questões de portabilidade no Calysto.
+RECIP-E é uma DSL **externa** (arquivo `.recipe` autônomo), não uma sintaxe
+embutida em Scheme. Macros expandem em tempo de leitura Scheme e não sabem
+tokenizar comentários, strings ou indentação. Além disso, palavras como
+`ESTE é` (com acento e espaço) e `A 180 GRAUS` não sobrevivem ao leitor de
+S-expressions. Por fim, os avisos precisam apontar a linha do erro —
+informação que só um parser explícito preserva.
 
 ## Conclusão
 
-**Principais conclusões.** É possível levantar um front-end completo
-(lexer + parser + printer + validações estáticas) de uma DSL não-trivial em
-poucos dias, *desde que* o esquema da AST e o contrato de token estejam
-fechados muito cedo. Os pontos que travaram o cronograma foram justamente os
-que não foram contratualizados a tempo: a forma exata do nó `verb-cmd` com
-muitos campos opcionais foi refinada algumas vezes até estabilizar.
+O projeto entrega um front-end completo (lexer → parser → pretty-print →
+validação estática) para uma DSL não trivial em português. Os pontos mais
+delicados foram:
 
-**Desafios enfrentados.**
-
-- **Indentação no lexer** — exigiu um modelo de pilha com `INDENT`/`DEDENT`
-  e atenção a linhas em branco / só com comentário, que não devem alterar o
-  nível.
-- **Multi-palavra `ESTE é`** — palavra com acento e espaço; resolvido
-  classificando ambos como `KEYWORD` e tratando como duas keywords
+- **Indentação no lexer** — resolvida com pilha de níveis emitindo
+  `INDENT`/`DEDENT`.
+- **`ESTE é`** — resolvida tratando as duas palavras como keywords
   contíguas no parser.
-- **`AO_MESMO_TEMPO` com múltiplas instruções por ramo** — escolhemos
-  manter um ramo = uma linha para simplificar; encadeamento de múltiplos
-  passos em um ramo é feito via `ESTE é`.
-- **Diferenças entre Calysto Scheme e Scheme padrão** — `char>=?`/`char<=?`
-  ausentes e `filter` com semântica Python obrigaram a reescrever
-  primitivas em código próprio.
+- **Portabilidade Calysto** — `filter` retorna objeto Python e `char>=?`
+  não existe; reescrevemos as primitivas necessárias em Scheme puro.
 
-**Lições aprendidas.**
-
-- Contratos antes de código. O esforço de uma manhã definindo `token` e
-  schema de AST poupou dias de retrabalho.
-- Trabalhar contra **fixtures** (tokens e ASTs escritos à mão) permite que
-  parser e printer evoluam em paralelo ao lexer.
-- Validação estática traz mais valor percebido por linha de código que
-  qualquer outra parte do front-end: é o que diferencia "ler um arquivo"
-  de "checar uma receita".
+A validação estática mostrou-se o componente de maior valor por linha de
+código: é o que separa "ler um arquivo" de "verificar uma receita".
 
 # Trabalhos Futuros
 
